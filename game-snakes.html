@@ -1,4 +1,6 @@
 <link rel="import" href="../polymer/polymer.html">
+
+<link rel="import" href="../iron-resizable-behavior/iron-resizable-behavior.html">
 <!--
 An element providing a snakes game.
 
@@ -33,11 +35,15 @@ Custom property                 | Description           | Default
 	<template>
 		<style>
 			:host {
-				display: block;
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
 				background-color: #FFFFFF;
 				position: relative;
 				-webkit-user-select: none;
 				user-select: none;
+				width: 100%;
+				height: 100%;
 			}
 			:host ::content [data-controller] {
 				display: none;
@@ -64,14 +70,27 @@ Custom property                 | Description           | Default
 				border-radius: 50%;
 				@apply(--game-snakes-food);
 			}
+			#container {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+			}
+			#stage {
+				position: relative;
+			}
 		</style>
 		<content selector="[data-controller]"></content>
-		<div id="food"></div>
-		<div id="head"></div>
+		<div id="container">
+			<div id="stage">
+				<div id="food"></div>
+				<div id="head"></div>
+			</div>
+		</div>
 	</template>
 	<script>
 		Polymer({
 			is: 'game-snakes',
+			behaviors: [Polymer.IronResizableBehavior],
 			properties: {
 				/*
 				*Block size, in pexels.
@@ -80,6 +99,10 @@ Custom property                 | Description           | Default
 					type: Number,
 					value: 20,
 					observer: '_sizeChanged'
+				},
+				_originalSize: {
+					type: Number,
+					value: 0
 				},
 				/*
 				*Number of blocks in vertical direction. Change will take effect when game stops.
@@ -138,7 +161,88 @@ Custom property                 | Description           | Default
 					readOnly: true,
 					notify: true,
 					observer: '_stateChanged'
+				},
+			},
+			listeners: {
+				'iron-resize': '_onIronResize'
+			},
+			ready: function() {
+				// Used by __onNextAnimationFrame to cancel any previous callback.
+				this.__raf = null;
+			},
+			dettached: function() {
+				if (this.__raf) {
+					window.cancelAnimationFrame(this.__raf);
+					this.__raf = null;
 				}
+			},
+			_onIronResize: function() {
+				this.__onNextAnimationFrame(this._resize);
+			},
+			__onNextAnimationFrame: function(callback) {
+				if (this.__raf) {
+					window.cancelAnimationFrame(this.__raf);
+				}
+				var self = this;
+				this.__raf = window.requestAnimationFrame(function nextAnimationFrame() {
+					self.__raf = null;
+					callback.call(self);
+				});
+			},
+			_modifySizeByForHeight: function(modify) {
+				let computeDimensionFromSize = (size) => this._computeHeightPx(size);
+				let availableDimension = parseInt(this.getComputedStyleValue("height"), 10);
+				return modify(computeDimensionFromSize, availableDimension);
+			},
+			_shrinkSizeByForHeight: function() {
+				return this._modifySizeByForHeight(this._shrinkSizeBy.bind(this));
+			},
+			_growSizeByForHeight: function() {
+				return this._modifySizeByForHeight(this._growSizeBy.bind(this));
+			},
+			_modifySizeByForWidth: function(modify) {
+				let computeDimensionFromSize = (size) => this._computeWidthPx(size);
+				let availableDimension = parseInt(this.getComputedStyleValue("width"), 10);
+				return modify(computeDimensionFromSize, availableDimension);
+			},
+			_shrinkSizeByForWidth: function() {
+				return this._modifySizeByForWidth(this._shrinkSizeBy.bind(this));
+			},
+			_growSizeByForWidth: function() {
+				return this._modifySizeByForWidth(this._growSizeBy.bind(this));
+			},
+			_shrinkSizeBy: function(computeDimensionFromSize, availableDimension) {
+				let less = 0;
+				if(computeDimensionFromSize(this.size) > availableDimension) {
+					do {
+						++less;
+					} while(computeDimensionFromSize(this.size - less) > availableDimension);
+				}
+				return less;
+			},
+			_growSizeBy: function(computeDimensionFromSize, availableDimension) {
+				let more = 0;
+				while(computeDimensionFromSize(this.size + more + 1) <= availableDimension) {
+					++more;
+				}
+				return more;
+			},
+			_resize : function() {
+				// Clean up previous width and height
+				this.$.stage.style.width = '';
+				this.$.stage.style.height = '';
+
+				let more = this._originalSize > this.size ? Math.min(this._growSizeByForWidth(), this._growSizeByForHeight()) : 0;
+				if(more > 0) {
+					this.size += more;
+				}
+
+				let less = Math.max(this._shrinkSizeByForWidth(), this._shrinkSizeByForHeight());
+				if(less > 0) {
+					this.size -= less;
+				}
+
+				this._setSize();
 			},
 			_position: function(x, y, node) {
 				var block =  this.size + this.gap;
@@ -153,11 +257,17 @@ Custom property                 | Description           | Default
 			_positionFood: function() {
 				this._position(this._foodX, this._foodY, this.$.food);
 			},
+			_computeHeightPx: function(size) {
+				return this._currHeight * size + this.gap * (this._currHeight - 1);
+			},
 			_setHeight: function() {
-				this.style.height = this._currHeight * this.size + this.gap * (this._currHeight - 1) + 'px';
+				this.$.stage.style.height = this._computeHeightPx(this.size) + 'px';
+			},
+			_computeWidthPx: function(size) {
+				return this._currWidth * size + this.gap * (this._currWidth - 1);
 			},
 			_setWidth: function() {
-				this.style.width = this._currWidth * this.size + this.gap * (this._currWidth - 1) + 'px';
+				this.$.stage.style.width = this._computeWidthPx(this.size) + 'px';
 			},
 			_setGap: function() {
 				this._setHeight();
@@ -217,6 +327,11 @@ Custom property                 | Description           | Default
 					this.size = oldVal;
 					return;
 				}
+
+				if(this._originalSize === undefined){
+					this._originalSize = this.size;
+				}
+
 				if (this._isReady) {
 					this._setSize();
 				}
@@ -238,7 +353,7 @@ Custom property                 | Description           | Default
 					this._styleSize(div);
 				}
 				this._tails.push(div);
-				Polymer.dom(this.root).appendChild(div);
+				Polymer.dom(this.$.stage).appendChild(div);
 			},
 			_setFood: function() {
 				var inTail = false;
